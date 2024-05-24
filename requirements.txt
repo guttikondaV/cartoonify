@@ -1,0 +1,28 @@
+# For running the code in the notebook
+jupyter
+ipykernel
+
+# For Scientific Computing and other utils
+numpy
+pandas
+matplotlib
+seaborn
+
+# For deep learning and neural networks
+torch
+lightning
+tqdm
+rich
+
+# For Image Processing
+Pillow
+albumentations
+
+# For experiment tracking
+neptune
+
+# For creating a web app
+streamlit
+
+# To set the environment variables
+python-dotenv
