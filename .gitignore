@@ -1,0 +1,27 @@
+# Config and Editor Specific Files
+.idea
+.vscode
+
+# Data Directory
+data
+
+# Python Specific Files
+*.pyc
+*.pyo
+*.pyd
+__pycache__
+.pytest_cache
+.pytest_history
+.cache
+.pytype
+.pyre
+.pyright
+*.so
+.ipynb_checkpoints
+
+# Checkpoints and Logs
+checkpoint
+logs
+
+# Environment Files
+*.env
