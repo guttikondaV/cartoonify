@@ -23,15 +23,15 @@ The script uses the following third-party libraries:
 import os
 import pathlib
 
-import albumentations as A
-import albumentations.pytorch.transforms as APT
-import neptune
 import rich
 from rich.console import Console  # type: ignore
 import torch
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 import torch.utils.data as data
+import torchvision as tv
+import torchvision.io as tv_io
+import torchvision.transforms.v2 as tv_transforms
 import tqdm
 
 # Project Imports
@@ -90,7 +90,7 @@ def _print_table(vals: list[list[str, float]]) -> None:
     # print(table)
 
 
-def reduce_lr(epoch: int) -> float:
+def reduce_lr(current_epoch: int) -> float:
     """
     Reduces the learning rate linearly to 0 until epoch == TOTAL_EPOCHS.
 
@@ -101,13 +101,15 @@ def reduce_lr(epoch: int) -> float:
         float: The learning rate multiplier.
     """
     TOTAL_EPOCHS = 200
-    START_DECAYING_FROM = 50
+    EPOCH_TO_START_DECAYING_FROM = 50
 
-    if epoch < START_DECAYING_FROM:
+    if current_epoch < EPOCH_TO_START_DECAYING_FROM:
         return 1.0
 
     # Start decaying the learning rate linearly to 0 until epoch == TOTAL_EPOCHS
-    return 1.0 - (epoch - START_DECAYING_FROM) / (TOTAL_EPOCHS - START_DECAYING_FROM)
+    return 1.0 - (current_epoch - EPOCH_TO_START_DECAYING_FROM) / (
+        TOTAL_EPOCHS - EPOCH_TO_START_DECAYING_FROM
+    )
 
 
 def train():
@@ -142,7 +144,6 @@ def train():
     d_x = discriminator.Discriminator()
 
     adversarial_loss_fn = loss.AdversarialLoss()
-    cyclic_loss_fn = loss.CyclicLoss()
 
     optimizer = optim.Adam(
         (
@@ -193,15 +194,12 @@ def train():
         adversarial_loss_fn
     )
 
-    cyclic_loss_fn_size_in_mb = utils.get_parameters_size_in_mb(cyclic_loss_fn)
-
     total_size_in_mb = (
         g_size_in_mb
         + f_size_in_mb
         + d_y_size_in_mb
         + d_x_size_in_mb
         + adversarial_loss_fn_size_in_mb
-        + cyclic_loss_fn_size_in_mb
     )
 
     _print_table(
@@ -211,7 +209,6 @@ def train():
             ["Discriminator D_Y", d_y_size_in_mb],
             ["Discriminator D_X", d_x_size_in_mb],
             ["Adversarial Loss", adversarial_loss_fn_size_in_mb],
-            ["Cyclic Loss", cyclic_loss_fn_size_in_mb],
             ["Total", total_size_in_mb],
         ]
     )
@@ -227,17 +224,17 @@ def train():
     train_ds = dataset.PeopleEmojiDataset(
         PEOPLE_TRAIN_DIR,
         EMOJI_TRAIN_DIR,
-        people_transform=A.Compose(
+        people_transform=tv_transforms.Compose(
             [
-                A.HorizontalFlip(p=0.5),
-                A.RandomBrightnessContrast(p=0.5),
-                APT.ToTensorV2(always_apply=True),
+                tv_transforms.RandomHorizontalFlip(p=0.5),
+                tv_transforms.ColorJitter(),
+                tv_transforms.ToDtype(dtype=torch.float32),
             ]
         ),
-        emoji_transform=A.Compose(
+        emoji_transform=tv_transforms.Compose(
             [
-                A.CenterCrop(475, 475, always_apply=True, p=1),
-                APT.ToTensorV2(always_apply=True),
+                tv_transforms.CenterCrop(475),
+                tv_transforms.ToDtype(dtype=torch.float32),
             ]
         ),
     )
@@ -246,35 +243,20 @@ def train():
         train_ds, batch_size=int(os.environ.get("BATCH_SIZE", 1)), shuffle=True
     )
 
-    N_BATCHES = len(train_dl)
     #################### DATA ENDS HERE ####################
-
-    #################### NEPTUNE STARTS HERE ####################
-    run = neptune.init_run(
-        project=os.environ.get("PROJECT_NAME", "emoji-generator"),
-        api_token=os.environ.get("NEPTUNE_API_TOKEN"),
-        name="CycleGAN Training",
-    )
-    #################### NEPTUNE ENDS HERE ####################
 
     #################### TRAINING STARTS HERE ####################
     print(f"Starting training from epoch {START_EPOCH} to {N_EPOCHS}")
     _print_seperator_line()
 
-    for epoch in tqdm.trange(START_EPOCH, N_EPOCHS + 1):
+    for epoch in range(START_EPOCH, N_EPOCHS + 1):
         g.train()
         f.train()
 
         d_y.train()
         d_x.train()
 
-        F_ADVERSAIRIAL_LOSS = 0.0
-        S_ADVERSARIAL_LOSS = 0.0
-        ADVERSARIAL_LOSS = 0.0
-        CYCLIC_LOSS = 0.0
-        TOTAL_LOSS = 0.0
-
-        for x, y in train_dl:
+        for x, y in tqdm.tqdm(train_dl):
             x = x.to(DEVICE)
             y = y.to(DEVICE)
 
@@ -286,7 +268,6 @@ def train():
             disc_actual = d_y(y)
 
             adversarial_loss = adversarial_loss_fn(disc_predicted, disc_actual)
-            F_ADVERSAIRIAL_LOSS += adversarial_loss.item()
             adversarial_loss.backward()
 
             # Adversarial Loss for second pair
@@ -295,38 +276,11 @@ def train():
             s_disc_actual = d_x(x)
 
             s_adversarial_loss = adversarial_loss_fn(s_disc_predicted, s_disc_actual)
-            S_ADVERSARIAL_LOSS += s_adversarial_loss.item()
             s_adversarial_loss.backward()
-
-            ADVERSARIAL_LOSS = F_ADVERSAIRIAL_LOSS + S_ADVERSARIAL_LOSS
-
-            # Cyclic Loss
-            f_g_x = f(g_x)
-            g_f_y = g(f_y)
-
-            cyclic_loss = cyclic_loss_fn(x, y, f_g_x, g_f_y)
-
-            CYCLIC_LOSS += cyclic_loss.item()
-
-            cyclic_loss.backward()
 
             optimizer.step()
 
-            TOTAL_LOSS = ADVERSARIAL_LOSS + CYCLIC_LOSS
-
         scheduler.step()
-
-        F_ADVERSAIRIAL_LOSS /= N_BATCHES
-        S_ADVERSARIAL_LOSS /= N_BATCHES
-        ADVERSARIAL_LOSS /= N_BATCHES
-        CYCLIC_LOSS /= N_BATCHES
-        TOTAL_LOSS /= N_BATCHES
-
-        run["Losses/First Adversarial Loss"].log(F_ADVERSAIRIAL_LOSS)
-        run["Losses/Second Adversarial Loss"].log(S_ADVERSARIAL_LOSS)
-        run["Losses/Adversarial Loss"].log(ADVERSARIAL_LOSS)
-        run["Losses/Cyclic Loss"].log(CYCLIC_LOSS)
-        run["Losses/Total Loss"].log(TOTAL_LOSS)
 
         if epoch % MODEL_SAVE_FREQ == 0:
             utils.save_checkpoint(g, f, d_x, d_y, optimizer, epoch)

@@ -5,14 +5,14 @@ The PeopleEmojiDataset class is a dataset class that returns a tuple of people
 and emoji images. The people images are of size (3, 178, 218) while the emoji
 images are of size (3,475,475).
 """
+
 import os
 import pathlib
 from typing import Self, Tuple
 
-import numpy as np
 import torch
 import torch.utils.data as data
-from PIL import Image
+import torchvision.io as tv_io
 
 try:
     if os.environ.get("ENV", "development") == "production":
@@ -114,22 +114,16 @@ class PeopleEmojiDataset(data.Dataset):
             self.emoji_images_split_dir, "train", self.emoji_images_filenames[emoji_idx]
         )
 
-        with Image.open(people_image_file_name) as img:
-            img.load()
-            people_image = np.asarray(img, dtype=np.uint8)
+        people_image = tv_io.read_image(people_image_file_name)
+        emoji_image = tv_io.read_image(emoji_image_file_name)
 
-        with Image.open(emoji_image_file_name) as img:
-            img.load()
-            emoji_image = np.asarray(img, dtype=np.uint8)
-
-            # Emoji has 4 channels: RGBA. We only need RGB.
-            emoji_image = emoji_image[:, :, :3]
+        emoji_image = emoji_image[:3, :, :]
 
         if self.people_transform is not None:
-            people_image = self.people_transform(image=people_image)["image"]
+            people_image = self.people_transform(people_image)
 
         if self.emoji_transform is not None:
-            emoji_image = self.emoji_transform(image=emoji_image)["image"]
+            emoji_image = self.emoji_transform(emoji_image)
 
         return people_image, emoji_image
 
