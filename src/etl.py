@@ -197,7 +197,7 @@ def load_data(dataset_size: int, test_size: int = 20):
 
 
 def main():
-    DATASET_SIZE = int(os.environ.get("DATASET_SIZE", 10_000))
+    DATASET_SIZE = int(os.environ.get("DATASET_SIZE", 1_000))
     TEST_SIZE = 20
     extract_data()
     load_data(DATASET_SIZE, TEST_SIZE)

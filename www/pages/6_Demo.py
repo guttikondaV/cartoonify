@@ -299,7 +299,7 @@ checkpoint = load_checkpoint()
 generator = Generator()
 
 if checkpoint is not None:
-    generator.load_state_dict(checkpoint["generator_state_dict"])
+    generator.load_state_dict(checkpoint["g_state_dict"])
 else:
     st.write(
         "No checkpoint found. The generator will be initialized with random weights and outputs will be imperceptible."

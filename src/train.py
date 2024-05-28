@@ -256,7 +256,7 @@ def train():
         d_y.train()
         d_x.train()
 
-        for x, y in tqdm.tqdm(train_dl):
+        for x, y in tqdm.tqdm(train_dl, leave=True, ascii=True):
             x = x.to(DEVICE)
             y = y.to(DEVICE)
 
